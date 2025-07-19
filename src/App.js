@@ -4,35 +4,6 @@ import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
-// --- 外部函式庫 (模擬引入) ---
-// 為了在環境中運作，我們需要動態載入 React-Quill
-const loadQuill = () => {
-  if (!document.getElementById('quill-css')) {
-    const link = document.createElement('link');
-    link.id = 'quill-css';
-    link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/react-quill@1.3.3/dist/quill.snow.css';
-    document.head.appendChild(link);
-  }
-};
-const ReactQuill = ({ value, onChange }) => {
-    const editorRef = useRef(null);
-    useEffect(() => {
-        if (editorRef.current && editorRef.current.innerHTML !== value) {
-            editorRef.current.innerHTML = value;
-        }
-    }, [value]);
-    return (
-        <div 
-            ref={editorRef}
-            className="w-full h-full p-4 text-lg leading-relaxed focus:outline-none resize-none prose max-w-none"
-            contentEditable="true"
-            onInput={(e) => onChange(e.currentTarget.innerHTML)}
-            dangerouslySetInnerHTML={{ __html: value }}
-        />
-    );
-};
-
 // --- UI Components ---
 const icons = {
   add: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>,
@@ -49,7 +20,6 @@ const icons = {
   graph: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19.5a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-3a.5.5 0 01.5-.5h3a.5.5 0 01.5.5v3zM11 5.5a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-3a.5.5 0 01.5-.5h3a.5.5 0 01.5.5v3zM21 11.5a.5.5 0 00-.5-.5h-3a.5.5 0 00-.5.5v3a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-3zM14 4.5a.5.5 0 00-.5-.5h-3a.5.5 0 00-.5.5v3a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-3z" /></svg>,
 };
 
-// --- 主應用程式組件 ---
 export default function App() {
   const [notes, setNotes] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -63,10 +33,7 @@ export default function App() {
   const [userId, setUserId] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
 
-  // --- Firebase 初始化 ---
   useEffect(() => {
-    loadQuill();
-    // *** 修正點 1: 從 Netlify 的環境變數讀取 Firebase 設定 ***
     try {
       const firebaseConfigString = process.env.REACT_APP_FIREBASE_CONFIG;
       if (!firebaseConfigString) {
@@ -89,7 +56,6 @@ export default function App() {
         if (user) {
           setUserId(user.uid);
         } else {
-          // *** 修正點 2: 移除 __initial_auth_token，只使用匿名登入 ***
           await signInAnonymously(authInstance);
         }
         setIsAuthReady(true);
@@ -103,11 +69,9 @@ export default function App() {
     }
   }, []);
 
-  // --- 從 Firestore 讀取筆記 ---
   useEffect(() => {
     if (!isAuthReady || !db || !userId) return;
     setIsLoading(true);
-    // *** 修正點 3: 移除 __app_id，使用固定的路徑結構 ***
     const notesCollectionPath = `notes/${userId}/userNotes`; 
     const q = query(collection(db, notesCollectionPath));
 
@@ -123,25 +87,16 @@ export default function App() {
     return () => unsubscribe();
   }, [db, userId, isAuthReady]);
 
-  // --- 輔助函式 ---
-  const extractTextFromHTML = (html) => {
-    if (!html) return '';
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    return doc.body.textContent || "";
-  };
-
-  // --- 過濾與篩選邏輯 ---
   const filteredNotes = useMemo(() => {
     return notes.filter(note => {
       const searchMatch = searchTerm 
-        ? note.title.toLowerCase().includes(searchTerm.toLowerCase()) || extractTextFromHTML(note.content).toLowerCase().includes(searchTerm.toLowerCase())
+        ? note.title.toLowerCase().includes(searchTerm.toLowerCase()) || (note.content || '').toLowerCase().includes(searchTerm.toLowerCase())
         : true;
       const tagMatch = selectedTag ? (note.tags || []).includes(selectedTag) : true;
       return searchMatch && tagMatch;
     });
   }, [notes, searchTerm, selectedTag]);
 
-  // --- 取得所有不重複的標籤 ---
   const allTags = useMemo(() => {
     const tagsSet = new Set();
     notes.forEach(note => {
@@ -150,13 +105,12 @@ export default function App() {
     return Array.from(tagsSet).sort();
   }, [notes]);
 
-  // --- 事件處理函式 ---
   const handleCreateNote = async () => {
     if (!db || !userId) return;
     const notesCollectionPath = `notes/${userId}/userNotes`;
     const newNote = {
       title: "新的問題/主題",
-      content: "<p>在這裡寫下您的筆記...</p>",
+      content: "在這裡寫下您的筆記...",
       tags: [],
       createdAt: serverTimestamp(),
     };
@@ -193,7 +147,6 @@ export default function App() {
     }
   };
 
-  // --- 渲染 UI ---
   return (
     <div className="flex h-screen font-sans bg-gray-50 text-gray-800">
       <aside className="w-1/4 bg-white border-r border-gray-200 flex flex-col">
@@ -221,7 +174,7 @@ export default function App() {
             filteredNotes.map(note => (
               <div key={note.id} onClick={() => handleSelectNote(note)} className={`p-4 cursor-pointer border-l-4 ${selectedNote?.id === note.id ? 'border-blue-500 bg-blue-50' : 'border-transparent hover:bg-gray-100'}`}>
                 <h3 className="font-semibold truncate text-gray-800">{note.title}</h3>
-                <p className="text-sm text-gray-500 truncate">{extractTextFromHTML(note.content)}</p>
+                <p className="text-sm text-gray-500 truncate">{note.content}</p>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {(note.tags || []).map(tag => <span key={tag} className="px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded-full">{tag}</span>)}
                 </div>
@@ -241,7 +194,7 @@ export default function App() {
 
       <main className="flex-grow w-1/2 p-6 md:p-8 flex flex-col bg-gray-50 overflow-y-auto">
         {selectedNote ? (
-          <NoteEditor key={selectedNote.id} note={selectedNote} isEditing={isEditing} setIsEditing={setIsEditing} onUpdate={handleUpdateNote} onDelete={handleDeleteNote} storage={storage} userId={userId} extractTextFromHTML={extractTextFromHTML}/>
+          <NoteEditor key={selectedNote.id} note={selectedNote} isEditing={isEditing} setIsEditing={setIsEditing} onUpdate={handleUpdateNote} onDelete={handleDeleteNote} storage={storage} userId={userId} />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
             {icons.book}
@@ -252,14 +205,13 @@ export default function App() {
       </main>
 
       <aside className="w-1/4 bg-white border-l border-gray-200 flex flex-col">
-        {/* 智慧關聯區塊維持不變，此處省略 */}
+        {/* 智慧關聯區塊 */}
       </aside>
     </div>
   );
 }
 
-// --- 筆記編輯器組件 ---
-function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage, userId, extractTextFromHTML }) {
+function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage, userId }) {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [tags, setTags] = useState(note.tags || []);
@@ -270,15 +222,11 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
 
-  // --- Gemini API 呼叫函式 (通用) ---
   const callGeminiAPI = async (prompt, jsonSchema = null) => {
     setIsGenerating(true);
     try {
-      // *** 修正點 4: 從 Netlify 的環境變數讀取 Gemini API Key ***
       const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error("Gemini API Key is not defined in environment variables.");
-      }
+      if (!apiKey) throw new Error("Gemini API Key is not defined.");
       const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
       const payload = {
@@ -309,11 +257,9 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
     }
   };
 
-  // --- 其他函式維持不變，此處省略以保持簡潔 ---
   const handleSuggestTags = async () => {
-    const textContent = extractTextFromHTML(content);
-    if (!textContent) return;
-    const prompt = `請根據以下筆記內容，建議 3 到 5 個最相關的關鍵字作為標籤。請只回傳單一詞彙，並用繁體中文。內容：\n\n${textContent}`;
+    if (!content) return;
+    const prompt = `請根據以下筆記內容，建議 3 到 5 個最相關的關鍵字作為標籤。請只回傳單一詞彙，並用繁體中文。內容：\n\n${content}`;
     const schema = { type: "ARRAY", items: { type: "STRING" } };
     const suggestions = await callGeminiAPI(prompt, schema);
     if (suggestions) {
@@ -323,12 +269,11 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
 
   const handleGenerateQuiz = async () => {
     setQuiz({ questions: [], isLoading: true, error: null });
-    const textContent = extractTextFromHTML(content);
-    if (!textContent) {
+    if (!content) {
       setQuiz({ questions: [], isLoading: false, error: "筆記內容是空的！" });
       return;
     }
-    const prompt = `請你扮演一位出題老師，根據以下筆記內容，設計 3 題選擇題來幫助我複習。每題都要有 4 個選項，一個正確答案，以及詳解。請用繁體中文回答。筆記內容：\n\n${textContent}`;
+    const prompt = `請你扮演一位出題老師，根據以下筆記內容，設計 3 題選擇題來幫助我複習。每題都要有 4 個選項，一個正確答案，以及詳解。請用繁體中文回答。筆記內容：\n\n${content}`;
     const schema = {
       type: "ARRAY",
       items: {
@@ -358,7 +303,25 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
   const removeTag = (tagToRemove) => setTags(tags.filter(tag => tag !== tagToRemove));
 
   const handleSetReminder = () => {
-    alert(`已為「${title}」設定複習排程！\n（此為功能示意，實際排程需後端支援）`);
+    alert(`已為「${title}」設定複習排程！\n（此為功能示意）`);
+  };
+
+  const handleImageUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file || !storage || !userId) return;
+    setIsUploading(true);
+    try {
+      const storagePath = `images/${userId}/${Date.now()}_${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(storageRef);
+      const imgTag = `\n<img src="${downloadURL}" alt="${file.name}" style="max-width: 100%; height: auto; border-radius: 8px;"/>\n`;
+      setContent(prev => prev + imgTag);
+    } catch (error) {
+      console.error("圖片上傳失敗:", error);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleSave = () => onUpdate(note.id, { title, content, tags });
@@ -372,7 +335,6 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
 
   return (
     <div className="flex flex-col h-full">
-      {/* 標題與操作按鈕 */}
       <div className="flex justify-between items-start mb-2 pb-2 border-b">
         {isEditing ? (
           <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="text-3xl font-bold w-full p-2 -ml-2 rounded-lg bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -389,7 +351,6 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
         </div>
       </div>
 
-      {/* 標籤顯示/編輯區 */}
       <div className="mb-4">
         {isEditing ? (
           <div className="p-2 bg-gray-100 rounded-lg">
@@ -409,26 +370,27 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
         )}
       </div>
 
-      {/* 編輯模式下的工具列 */}
       {isEditing && (
         <div className="mb-4 flex flex-wrap items-center gap-2 p-2 bg-gray-100 rounded-lg">
             <button onClick={() => fileInputRef.current.click()} disabled={isUploading || isGenerating} className="flex items-center px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50">{isUploading ? '上傳中...' : <>{icons.image} 插入圖片</>}</button>
-            <input type="file" ref={fileInputRef} onChange={(e) => handleImageUpload(e, setContent, storage, userId, setIsUploading)} accept="image/*" className="hidden" />
+            <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
             <div className="h-6 border-l border-gray-300"></div>
             <button onClick={handleSuggestTags} disabled={isGenerating} className="flex items-center px-3 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50">{icons.sparkles} 建議標籤</button>
         </div>
       )}
 
-      {/* 筆記內容顯示/編輯區 */}
       <div className="flex-grow bg-white rounded-lg shadow-inner overflow-y-auto mb-6">
         {isEditing ? (
-          <ReactQuill value={content} onChange={setContent} />
+          <textarea 
+            value={content} 
+            onChange={(e) => setContent(e.target.value)}
+            className="w-full h-full p-4 text-lg leading-relaxed focus:outline-none resize-none"
+          />
         ) : (
-          <div className="prose prose-lg max-w-none p-4 text-gray-700" dangerouslySetInnerHTML={{ __html: content }} />
+          <div className="prose prose-lg max-w-none p-4 text-gray-700 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: content.replace(/\n/g, '<br />') }} />
         )}
       </div>
 
-      {/* 非編輯模式下的學習工具 */}
       {!isEditing && (
         <div className="p-4 bg-gray-100 rounded-lg">
           <h3 className="text-lg font-bold text-gray-800 mb-3">學習工具箱</h3>
@@ -443,7 +405,6 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
   );
 }
 
-// --- 測驗區塊組件 ---
 function QuizSection({ quiz, setQuiz }) {
   if (quiz.isLoading) return <p className="mt-4 text-gray-600">AI 正在努力為您出題中，請稍候...</p>;
   if (quiz.error) return <p className="mt-4 text-red-500">{quiz.error}</p>;
@@ -484,23 +445,3 @@ function QuizSection({ quiz, setQuiz }) {
     </div>
   );
 }
-
-// 圖片上傳函式 (移出組件以利重用)
-async function handleImageUpload(event, setContent, storage, userId, setIsUploading) {
-    const file = event.target.files[0];
-    if (!file || !storage || !userId) return;
-    setIsUploading(true);
-    try {
-      const storagePath = `images/${userId}/${Date.now()}_${file.name}`;
-      const storageRef = ref(storage, storagePath);
-      await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(storageRef);
-      const imgTag = `<p><img src="${downloadURL}" alt="${file.name}" style="max-width: 100%; height: auto; border-radius: 8px;"/></p>`;
-      setContent(prev => prev + imgTag);
-    } catch (error) {
-      console.error("圖片上傳失敗:", error);
-      alert("圖片上傳失敗，請檢查主控台錯誤訊息。");
-    } finally {
-      setIsUploading(false);
-    }
-  };
