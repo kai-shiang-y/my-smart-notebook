@@ -28,7 +28,7 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [db, setDb] = useState(null);
-  const [auth, setAuth] = useState(null);
+  const [, setAuth] = useState(null);
   const [storage, setStorage] = useState(null);
   const [userId, setUserId] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
