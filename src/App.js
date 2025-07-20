@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, query, where, Timestamp, getDocs } from 'firebase/firestore';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
-// UI 圖示... (此處省略以保持簡潔)
+// --- UI Components ---
 const icons = {
   add: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>,
   save: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z" /></svg>,
@@ -20,8 +20,10 @@ const icons = {
   graph: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19.5a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-3a.5.5 0 01.5-.5h3a.5.5 0 01.5.5v3zM11 5.5a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-3a.5.5 0 01.5-.5h3a.5.5 0 01.5.5v3zM21 11.5a.5.5 0 00-.5-.5h-3a.5.5 0 00-.5.5v3a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-3zM14 4.5a.5.5 0 00-.5-.5h-3a.5.5 0 00-.5.5v3a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-3z" /></svg>,
   review: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
   check: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>,
+  google: <svg className="w-5 h-5 mr-2" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"></path><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C16.318 4 9.656 8.337 6.306 14.691z"></path><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"></path><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C42.018 35.17 44 30.023 44 24c0-1.341-.138-2.65-.389-3.917z"></path></svg>,
 };
 
+// --- 主應用程式組件 ---
 export default function App() {
   const [notes, setNotes] = useState([]);
   const [reviewNotes, setReviewNotes] = useState([]);
@@ -31,10 +33,12 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [db, setDb] = useState(null);
+  const [auth, setAuth] = useState(null);
   const [storage, setStorage] = useState(null);
-  const [userId, setUserId] = useState(null);
+  const [user, setUser] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
 
+  // --- Firebase 初始化 ---
   useEffect(() => {
     try {
       const firebaseConfigString = process.env.REACT_APP_FIREBASE_CONFIG;
@@ -44,22 +48,20 @@ export default function App() {
         return;
       }
       const firebaseConfig = JSON.parse(firebaseConfigString);
-
+      
       const app = initializeApp(firebaseConfig);
       const firestore = getFirestore(app);
       const authInstance = getAuth(app);
       const storageInstance = getStorage(app);
-
+      
       setDb(firestore);
+      setAuth(authInstance);
       setStorage(storageInstance);
-
-      const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
-        if (user) {
-          setUserId(user.uid);
-        } else {
-          await signInAnonymously(authInstance);
-        }
+  
+      const unsubscribe = onAuthStateChanged(authInstance, (currentUser) => {
+        setUser(currentUser);
         setIsAuthReady(true);
+        setIsLoading(false);
       });
       return () => unsubscribe();
 
@@ -70,32 +72,37 @@ export default function App() {
     }
   }, []);
 
+  // --- 從 Firestore 讀取筆記 ---
   useEffect(() => {
-    if (!isAuthReady || !db || !userId) return;
-    setIsLoading(true);
-    const notesCollectionPath = `notes/${userId}/userNotes`; 
+    if (!isAuthReady || !db || !user) {
+      setNotes([]);
+      return;
+    }
+    const notesCollectionPath = `notes/${user.uid}/userNotes`; 
     const q = query(collection(db, notesCollectionPath));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const notesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), tags: doc.data().tags || [] }));
       notesData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
       setNotes(notesData);
-      setIsLoading(false);
     }, (error) => {
       console.error("讀取筆記時發生錯誤:", error);
-      setIsLoading(false);
     });
     return () => unsubscribe();
-  }, [db, userId, isAuthReady]);
+  }, [db, user, isAuthReady]);
 
+  // --- 讀取今日待複習筆記 ---
   useEffect(() => {
-    if (!isAuthReady || !db || !userId || notes.length === 0) return;
+    if (!isAuthReady || !db || !user || notes.length === 0) {
+      setReviewNotes([]);
+      return;
+    }
 
     const today = new Date();
     const todayStart = new Date(today.setHours(0, 0, 0, 0));
     const todayEnd = new Date(today.setHours(23, 59, 59, 999));
 
-    const remindersCollectionPath = `reminders/${userId}/userReminders`;
+    const remindersCollectionPath = `reminders/${user.uid}/userReminders`;
     const q = query(
       collection(db, remindersCollectionPath),
       where('reviewDate', '>=', Timestamp.fromDate(todayStart)),
@@ -110,14 +117,38 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [db, userId, isAuthReady, notes]);
+  }, [db, user, isAuthReady, notes]);
 
+  // --- Google 登入/登出處理函式 ---
+  const handleGoogleSignIn = async () => {
+    if (!auth) return;
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Google 登入失敗:", error);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (!auth) return;
+    try {
+      await signOut(auth);
+      setSelectedNote(null);
+      setNotes([]);
+      setReviewNotes([]);
+    } catch (error) {
+      console.error("登出失敗:", error);
+    }
+  };
+  
+  // --- 其他函式 ---
   const extractTextFromHTML = (html) => {
     if (!html) return '';
     const doc = new DOMParser().parseFromString(html, 'text/html');
     return doc.body.textContent || "";
   };
-
+  
   const filteredNotes = useMemo(() => {
     return notes.filter(note => {
       const searchMatch = searchTerm 
@@ -160,8 +191,8 @@ export default function App() {
   }, [selectedNote, notes]);
 
   const handleCreateNote = async () => {
-    if (!db || !userId) return;
-    const notesCollectionPath = `notes/${userId}/userNotes`;
+    if (!db || !user) return;
+    const notesCollectionPath = `notes/${user.uid}/userNotes`;
     const newNote = {
       title: "新的問題/主題",
       content: "<p>在這裡寫下您的筆記...</p>",
@@ -174,15 +205,15 @@ export default function App() {
       setIsEditing(true);
     } catch (error) { console.error("新增筆記失敗:", error); }
   };
-
+  
   const handleSelectNote = (note) => {
     setSelectedNote(note);
     setIsEditing(false);
   };
-
+  
   const handleUpdateNote = async (id, updatedData) => {
-    if (!db || !userId) return;
-    const noteDoc = doc(db, `notes/${userId}/userNotes`, id);
+    if (!db || !user) return;
+    const noteDoc = doc(db, `notes/${user.uid}/userNotes`, id);
     try {
       await updateDoc(noteDoc, updatedData);
       setSelectedNote(prev => ({...prev, ...updatedData}));
@@ -192,8 +223,8 @@ export default function App() {
 
   const handleDeleteNote = async (id) => {
     if (window.confirm("確定要刪除這則筆記嗎？")) {
-      if (!db || !userId) return;
-      const noteDoc = doc(db, `notes/${userId}/userNotes`, id);
+      if (!db || !user) return;
+      const noteDoc = doc(db, `notes/${user.uid}/userNotes`, id);
       try {
         await deleteDoc(noteDoc);
         setSelectedNote(null);
@@ -202,12 +233,11 @@ export default function App() {
   };
 
   const handleMarkReviewAsDone = async (noteId) => {
-    if (!db || !userId) return;
+    if (!db || !user) return;
+    const remindersCollectionPath = `reminders/${user.uid}/userReminders`;
     const today = new Date();
     const todayStart = new Date(today.setHours(0, 0, 0, 0));
     const todayEnd = new Date(today.setHours(23, 59, 59, 999));
-
-    const remindersCollectionPath = `reminders/${userId}/userReminders`;
     const q = query(
       collection(db, remindersCollectionPath),
       where('noteId', '==', noteId),
@@ -215,7 +245,6 @@ export default function App() {
       where('reviewDate', '<=', Timestamp.fromDate(todayEnd)),
       where('completed', '==', false)
     );
-
     try {
       const querySnapshot = await getDocs(q);
       querySnapshot.forEach((docSnapshot) => {
@@ -225,78 +254,98 @@ export default function App() {
       console.error("更新複習狀態失敗:", error);
     }
   };
-
+  
+  // --- 渲染 UI ---
   return (
     <div className="flex h-screen font-sans bg-gray-50 text-gray-800">
       <aside className="w-1/4 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <h1 className="text-xl font-bold text-gray-700 flex items-center">{icons.book} <span className="ml-2">學習筆記本</span></h1>
-          <button onClick={handleCreateNote} className="p-2 rounded-full text-blue-500 bg-blue-100 hover:bg-blue-200" title="新增筆記">{icons.add}</button>
+          {user && <button onClick={handleCreateNote} className="p-2 rounded-full text-blue-500 bg-blue-100 hover:bg-blue-200" title="新增筆記">{icons.add}</button>}
         </div>
-
-        <div className="p-4 border-b border-gray-200">
-          <div className="relative mb-4">
-            <span className="absolute inset-y-0 left-0 flex items-center pl-3">{icons.search}</span>
-            <input type="text" placeholder="搜尋筆記..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"/>
-          </div>
-          <h3 className="text-sm font-semibold text-gray-600 mb-2">標籤篩選</h3>
-          <div className="flex flex-wrap gap-2">
-            {allTags.map(tag => (
-              <button key={tag} onClick={() => setSelectedTag(tag)} className={`px-2 py-1 text-xs rounded-full ${selectedTag === tag ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>{tag}</button>
-            ))}
-            {selectedTag && <button onClick={() => setSelectedTag(null)} className="px-2 py-1 text-xs rounded-full bg-red-500 text-white">清除篩選</button>}
-          </div>
-        </div>
-
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-600 mb-2 flex items-center">{icons.review} 今日複習 ({reviewNotes.length})</h3>
-          {reviewNotes.length > 0 ? (
-            <ul className="space-y-2 max-h-32 overflow-y-auto">
-              {reviewNotes.map(note => (
-                <li key={note.id} className="flex items-center justify-between text-sm group">
-                  <span onClick={() => handleSelectNote(note)} className="truncate cursor-pointer hover:text-blue-600">{note.title}</span>
-                  <button onClick={() => handleMarkReviewAsDone(note.id)} className="p-1 rounded-full hover:bg-green-200 opacity-0 group-hover:opacity-100 transition-opacity" title="完成複習">
-                    {icons.check}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-gray-400">今天沒有待複習的筆記。</p>
-          )}
-        </div>
-
-        <div className="overflow-y-auto flex-grow">
-          {isLoading ? <p className="p-4 text-gray-500">載入中...</p> : filteredNotes.length > 0 ? (
-            filteredNotes.map(note => (
-              <div key={note.id} onClick={() => handleSelectNote(note)} className={`p-4 cursor-pointer border-l-4 ${selectedNote?.id === note.id ? 'border-blue-500 bg-blue-50' : 'border-transparent hover:bg-gray-100'}`}>
-                <h3 className="font-semibold truncate text-gray-800">{note.title}</h3>
-                <p className="text-sm text-gray-500 truncate">{extractTextFromHTML(note.content)}</p>
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {(note.tags || []).map(tag => <span key={tag} className="px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded-full">{tag}</span>)}
-                </div>
+        
+        {user ? (
+          <>
+            <div className="p-4 border-b border-gray-200">
+              <div className="relative mb-4">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3">{icons.search}</span>
+                <input type="text" placeholder="搜尋筆記..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"/>
               </div>
-            ))
-          ) : <p className="p-4 text-gray-500">找不到符合的筆記。</p>}
-        </div>
-
-        <div className="p-2 text-center text-xs text-gray-400 border-t">
-          <button className="flex items-center justify-center w-full text-gray-600 hover:text-blue-500" onClick={() => alert('知識圖譜功能即將推出！')}>
-            {icons.graph}
-            <span className="ml-2">開啟知識圖譜</span>
-          </button>
+              <h3 className="text-sm font-semibold text-gray-600 mb-2">標籤篩選</h3>
+              <div className="flex flex-wrap gap-2">
+                {allTags.map(tag => (
+                  <button key={tag} onClick={() => setSelectedTag(tag)} className={`px-2 py-1 text-xs rounded-full ${selectedTag === tag ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>{tag}</button>
+                ))}
+                {selectedTag && <button onClick={() => setSelectedTag(null)} className="px-2 py-1 text-xs rounded-full bg-red-500 text-white">清除篩選</button>}
+              </div>
+            </div>
+            
+            <div className="p-4 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-600 mb-2 flex items-center">{icons.review} 今日複習 ({reviewNotes.length})</h3>
+              {reviewNotes.length > 0 ? (
+                <ul className="space-y-2 max-h-32 overflow-y-auto">
+                  {reviewNotes.map(note => (
+                    <li key={note.id} className="flex items-center justify-between text-sm group">
+                      <span onClick={() => handleSelectNote(note)} className="truncate cursor-pointer hover:text-blue-600">{note.title}</span>
+                      <button onClick={() => handleMarkReviewAsDone(note.id)} className="p-1 rounded-full hover:bg-green-200 opacity-0 group-hover:opacity-100 transition-opacity" title="完成複習">
+                        {icons.check}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-gray-400">今天沒有待複習的筆記。</p>
+              )}
+            </div>
+    
+            <div className="overflow-y-auto flex-grow">
+              {isLoading ? <p className="p-4 text-gray-500">載入中...</p> : filteredNotes.length > 0 ? (
+                filteredNotes.map(note => (
+                  <div key={note.id} onClick={() => handleSelectNote(note)} className={`p-4 cursor-pointer border-l-4 ${selectedNote?.id === note.id ? 'border-blue-500 bg-blue-50' : 'border-transparent hover:bg-gray-100'}`}>
+                    <h3 className="font-semibold truncate text-gray-800">{note.title}</h3>
+                    <p className="text-sm text-gray-500 truncate">{extractTextFromHTML(note.content)}</p>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {(note.tags || []).map(tag => <span key={tag} className="px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded-full">{tag}</span>)}
+                    </div>
+                  </div>
+                ))
+              ) : <p className="p-4 text-gray-500">找不到符合的筆記。</p>}
+            </div>
+          </>
+        ) : (
+          <div className="flex-grow flex flex-col items-center justify-center p-4 text-center">
+            <p className="text-gray-600">請登入以開始使用您的雲端筆記本。</p>
+            <button onClick={handleGoogleSignIn} className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+              {icons.google}
+              使用 Google 登入
+            </button>
+          </div>
+        )}
+        
+        <div className="p-2 text-center text-xs text-gray-400 border-t mt-auto">
+          {user ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <img src={user.photoURL} alt={user.displayName} className="w-6 h-6 rounded-full" />
+                <span className="ml-2 text-sm text-gray-700 truncate">{user.displayName}</span>
+              </div>
+              <button onClick={handleSignOut} className="text-red-500 hover:underline text-sm">登出</button>
+            </div>
+          ) : (
+            <p>尚未登入</p>
+          )}
         </div>
 
       </aside>
 
       <main className="flex-grow w-1/2 p-6 md:p-8 flex flex-col bg-gray-50 overflow-y-auto">
-        {selectedNote ? (
-          <NoteEditor key={selectedNote.id} note={selectedNote} isEditing={isEditing} setIsEditing={setIsEditing} onUpdate={handleUpdateNote} onDelete={handleDeleteNote} storage={storage} userId={userId} db={db} extractTextFromHTML={extractTextFromHTML}/>
+        {user && selectedNote ? (
+          <NoteEditor key={selectedNote.id} note={selectedNote} isEditing={isEditing} setIsEditing={setIsEditing} onUpdate={handleUpdateNote} onDelete={handleDeleteNote} storage={storage} user={user} db={db} extractTextFromHTML={extractTextFromHTML}/>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
             {icons.book}
             <h2 className="mt-4 text-2xl font-semibold">歡迎使用智慧學習筆記本</h2>
-            <p className="mt-2">從左側選擇或新增一則筆記開始。</p>
+            <p className="mt-2">{user ? '從左側選擇或新增一則筆記開始。' : '請先登入以同步您的筆記。'}</p>
           </div>
         )}
       </main>
@@ -333,7 +382,7 @@ export default function App() {
   );
 }
 
-function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage, userId, db, extractTextFromHTML }) {
+function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage, user, db, extractTextFromHTML }) {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [tags, setTags] = useState(note.tags || []);
@@ -351,7 +400,7 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
         ['bold', 'italic', 'underline', 'strike'],
         [{'color': []}, {'background': []}],
         [{'list': 'ordered'}, {'list': 'bullet'}],
-        ['link', 'image'],
+        ['link', 'image', 'table'], // 啟用表格
         ['clean']
       ],
       handlers: {
@@ -363,14 +412,14 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
 
           input.onchange = async () => {
             const file = input.files[0];
-            if (!file || !storage || !userId) return;
+            if (!file || !storage || !user) return;
             setIsUploading(true);
             try {
-              const storagePath = `images/${userId}/${Date.now()}_${file.name}`;
+              const storagePath = `images/${user.uid}/${Date.now()}_${file.name}`;
               const storageRef = ref(storage, storagePath);
               await uploadBytes(storageRef, file);
               const downloadURL = await getDownloadURL(storageRef);
-
+              
               const quill = quillRef.current.getEditor();
               const range = quill.getSelection(true);
               quill.insertEmbed(range.index, 'image', downloadURL);
@@ -384,7 +433,7 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
         }
       }
     }
-  }), [storage, userId]);
+  }), [storage, user]);
 
   const callGeminiAPI = async (prompt, jsonSchema = null) => {
     setIsGenerating(true);
@@ -407,7 +456,7 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
       setIsGenerating(false);
     }
   };
-
+  
   const handleSuggestTags = async () => {
     const textContent = extractTextFromHTML(content);
     if (!textContent) return;
@@ -418,7 +467,7 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
       setSuggestedTags(suggestions.filter(tag => !tags.includes(tag)));
     }
   };
-
+  
   const handleGenerateQuiz = async () => {
     setQuiz({ questions: [], isLoading: true, error: null });
     const textContent = extractTextFromHTML(content);
@@ -437,10 +486,10 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
   };
 
   const handleSetReminder = async () => {
-    if (!db || !userId) return;
+    if (!db || !user) return;
     const today = new Date();
     const reviewIntervals = [1, 3, 7, 14, 30];
-    const remindersCollectionPath = `reminders/${userId}/userReminders`;
+    const remindersCollectionPath = `reminders/${user.uid}/userReminders`;
     try {
       for (const days of reviewIntervals) {
         const reviewDate = new Date(today);
@@ -464,7 +513,7 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
   };
   const removeTag = (tagToRemove) => setTags(tags.filter(tag => tag !== tagToRemove));
   const handleSave = () => onUpdate(note.id, { title, content, tags });
-
+  
   useEffect(() => {
       setTitle(note.title);
       setContent(note.content);
@@ -508,7 +557,7 @@ function NoteEditor({ note, isEditing, setIsEditing, onUpdate, onDelete, storage
           <div className="flex flex-wrap gap-2">{tags.map(tag => <span key={tag} className="px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded-full">{tag}</span>)}</div>
         )}
       </div>
-
+      
       {isEditing && (
         <div className="mb-4 flex flex-wrap items-center gap-2 p-2 bg-gray-100 rounded-lg">
             <button onClick={handleSuggestTags} disabled={isGenerating} className="flex items-center px-3 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50">{icons.sparkles} 建議標籤</button>
